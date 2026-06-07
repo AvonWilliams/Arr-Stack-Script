@@ -111,6 +111,60 @@ make_dirs() {
   ok "Directories ready."
 }
 
+# Generate a starter Homepage dashboard (only when Homepage is selected) so the
+# board isn't empty on first load. Files are staged as the current user, then
+# copied in and chowned, since $CONFIG_ROOT may be root-owned.
+write_homepage_config() {
+  in_selected homepage || return 0
+  log "Generating starter Homepage dashboard config..."
+  local ip tmp; ip=$(hostname -I 2>/dev/null | awk '{print $1}'); ip=${ip:-localhost}
+  tmp=$(mktemp -d)
+
+  cat > "$tmp/settings.yaml" <<EOF
+title: ARR Stack
+theme: dark
+color: slate
+headerStyle: clean
+EOF
+
+  cat > "$tmp/docker.yaml" <<EOF
+my-docker:
+  socket: /var/run/docker.sock
+EOF
+
+  cat > "$tmp/widgets.yaml" <<EOF
+- resources:
+    cpu: true
+    memory: true
+    disk: /
+- search:
+    provider: duckduckgo
+    target: _blank
+- datetime:
+    text_size: xl
+    format:
+      timeStyle: short
+EOF
+
+  cat > "$tmp/bookmarks.yaml" <<EOF
+- Reference:
+    - LinuxServer docs:
+        - abbr: LS
+          href: https://docs.linuxserver.io/
+    - TRaSH Guides:
+        - abbr: TG
+          href: https://trash-guides.info/
+EOF
+
+  emit_homepage_services "$ip" > "$tmp/services.yaml"
+
+  as_root mkdir -p "$CONFIG_ROOT/homepage"
+  as_root cp "$tmp"/*.yaml "$CONFIG_ROOT/homepage/"
+  as_root chown -R "$PUID:$PGID" "$CONFIG_ROOT/homepage"
+  rm -rf "$tmp"
+  ok "Wrote Homepage config to $CONFIG_ROOT/homepage"
+}
+
 # Step 5 — assemble docker-compose.yml from the selected services.
 write_compose() {
   local key
@@ -174,6 +228,7 @@ main() {
   write_env
   make_dirs
   write_compose
+  write_homepage_config
   check_ports
   echo
   if confirm "Deploy the stack now?" Y; then

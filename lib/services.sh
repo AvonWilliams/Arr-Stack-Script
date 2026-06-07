@@ -76,6 +76,44 @@ declare -A SVC_PORT=(
 # True if KEY is in the SELECTED array (set by install.sh).
 in_selected() { local x; for x in "${SELECTED[@]:-}"; do [[ $x == "$1" ]] && return 0; done; return 1; }
 
+# Grouping for the generated Homepage dashboard: "Group:key,key,...".
+HOMEPAGE_GROUPS=(
+  "Downloads:gluetun,qbittorrent,sabnzbd,unpackerr,flaresolverr"
+  "Automation:prowlarr,sonarr,radarr,lidarr,readarr,bazarr,recyclarr,tdarr,maintainerr"
+  "Media:jellyfin,navidrome,calibre-web,audiobookshelf"
+  "Requests:overseerr,jellyseerr"
+  "Management:homepage,portainer,dozzle"
+)
+
+# emit_homepage_services IP -> prints Homepage services.yaml for the SELECTED set.
+# Each tile gets a Docker container reference (live status when the socket is
+# readable) and an HTTP siteMonitor (up/down indicator that needs no socket).
+emit_homepage_services() {
+  local ip=$1 entry group members key port name desc
+  local -a arr sel
+  for entry in "${HOMEPAGE_GROUPS[@]}"; do
+    group=${entry%%:*}; members=${entry#*:}
+    IFS=',' read -ra arr <<<"$members"
+    sel=(); for key in "${arr[@]}"; do in_selected "$key" && sel+=("$key"); done
+    ((${#sel[@]})) || continue
+    echo "- ${group}:"
+    for key in "${sel[@]}"; do
+      name=${SVC_LABEL[$key]%% (*}
+      desc=${SVC_LABEL[$key]#*\(}; desc=${desc%\)}
+      port=${SVC_PORT[$key]}
+      echo "    - ${name}:"
+      echo "        icon: ${key}.png"
+      echo "        description: ${desc}"
+      echo "        container: ${key}"
+      echo "        server: my-docker"
+      if [[ -n $port && $key != gluetun ]]; then
+        echo "        href: http://${ip}:${port}"
+        echo "        siteMonitor: http://${ip}:${port}"
+      fi
+    done
+  done
+}
+
 # Common environment lines shared by LinuxServer images.
 _lsio_env() {
   cat <<'EOF'
