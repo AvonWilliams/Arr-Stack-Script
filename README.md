@@ -6,17 +6,39 @@ launches everything.
 
 ## Apps
 
+Pick any subset at install time.
+
 | Service | Role | Default URL |
 |---|---|---|
+| Gluetun | VPN tunnel that routes qBittorrent | `:8000` (control API) |
 | qBittorrent | Torrent download client | `:8080` |
 | SABnzbd | Usenet download client | `:8081` |
+| Unpackerr | Auto-extracts completed downloads | _(no UI)_ |
+| Prowlarr | Indexer manager (feeds the *arr apps) | `:9696` |
+| FlareSolverr | Cloudflare solver for indexers | `:8191` |
 | Sonarr | TV management | `:8989` |
 | Radarr | Movie management | `:7878` |
 | Lidarr | Music management | `:8686` |
 | Readarr | Book management | `:8787` |
+| Bazarr | Subtitles for Sonarr/Radarr | `:6767` |
+| Recyclarr | Syncs TRaSH quality profiles | _(no UI)_ |
 | Jellyfin | Media server | `:8096` |
-| Overseerr | Media requests | `:5055` |
+| Navidrome | Music streaming server | `:4533` |
+| Calibre-Web | Ebook reader/library | `:8083` |
+| Audiobookshelf | Audiobooks & podcasts server | `:13378` |
+| Tdarr | Library transcoding/health checks | `:8265` |
+| Overseerr | Requests (Plex-oriented) | `:5055` |
+| Jellyseerr | Requests (Jellyfin-oriented) | `:5056` |
+| Maintainerr | Rule-based library cleanup | `:6246` |
+| Homepage | Dashboard for the whole stack | `:3000` |
 | Portainer | Container management UI | `:9000` |
+| Dozzle | Live container log viewer | `:8888` |
+
+**VPN note:** if you select **Gluetun**, the installer asks for your VPN provider
+and credentials, and routes **qBittorrent** through the tunnel (it shares
+Gluetun's network namespace). SABnzbd stays direct — usenet is SSL to your
+provider and doesn't expose your IP to peers the way torrents do. qBittorrent has
+no connectivity until the tunnel is up; check `docker logs gluetun`.
 
 ## Install
 

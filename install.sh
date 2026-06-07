@@ -26,6 +26,24 @@ select_apps() {
   done
 }
 
+# Collect Gluetun VPN settings (only when gluetun is selected).
+prompt_vpn() {
+  echo; log "Gluetun VPN configuration (routes qBittorrent's traffic):"
+  ask VPN_SERVICE_PROVIDER "VPN provider (e.g. mullvad, protonvpn, nordvpn, private internet access)" "mullvad"
+  ask VPN_TYPE "VPN type (wireguard or openvpn)" "wireguard"
+  WIREGUARD_PRIVATE_KEY=""; WIREGUARD_ADDRESSES=""; OPENVPN_USER=""; OPENVPN_PASSWORD=""
+  if [[ $VPN_TYPE == openvpn ]]; then
+    ask OPENVPN_USER "OpenVPN username" ""
+    ask OPENVPN_PASSWORD "OpenVPN password" ""
+  else
+    ask WIREGUARD_PRIVATE_KEY "WireGuard private key" ""
+    ask WIREGUARD_ADDRESSES "WireGuard address (e.g. 10.64.0.2/32)" ""
+  fi
+  ask SERVER_COUNTRIES "Preferred server country (optional, e.g. Netherlands)" ""
+  [[ -n $WIREGUARD_PRIVATE_KEY || -n $OPENVPN_PASSWORD ]] \
+    || warn "No VPN credentials entered — fill them into .env before the tunnel can connect."
+}
+
 # Step 4 — gather configuration and write .env.
 write_env() {
   echo; log "Environment configuration:"
@@ -36,7 +54,7 @@ write_env() {
     || tz_default=$(readlink -f /etc/localtime 2>/dev/null | sed 's#.*/zoneinfo/##')
   ask TZ "Timezone" "${tz_default:-Etc/UTC}"
   ask CONFIG_ROOT "Config storage path (per-app configs)" "$PROJECT_DIR/config"
-  ask MEDIA_ROOT "Media library root (holds tv/movies/music/books)" "/srv/media"
+  ask MEDIA_ROOT "Media library root (tv/movies/music/books/audiobooks/podcasts)" "/srv/media"
   ask DOWNLOADS_ROOT "Downloads path (shared by download clients)" "/srv/downloads"
 
   cat > "$ENV_FILE" <<EOF
@@ -49,6 +67,32 @@ CONFIG_ROOT=$CONFIG_ROOT
 MEDIA_ROOT=$MEDIA_ROOT
 DOWNLOADS_ROOT=$DOWNLOADS_ROOT
 EOF
+
+  if in_selected gluetun; then
+    prompt_vpn
+    cat >> "$ENV_FILE" <<EOF
+
+# Gluetun VPN (see https://github.com/qdm12/gluetun-wiki for provider specifics)
+VPN_SERVICE_PROVIDER=$VPN_SERVICE_PROVIDER
+VPN_TYPE=$VPN_TYPE
+WIREGUARD_PRIVATE_KEY=$WIREGUARD_PRIVATE_KEY
+WIREGUARD_ADDRESSES=$WIREGUARD_ADDRESSES
+OPENVPN_USER=$OPENVPN_USER
+OPENVPN_PASSWORD=$OPENVPN_PASSWORD
+SERVER_COUNTRIES=$SERVER_COUNTRIES
+EOF
+  fi
+
+  if in_selected homepage; then
+    local ip; ip=$(hostname -I 2>/dev/null | awk '{print $1}'); ip=${ip:-localhost}
+    ask HOMEPAGE_ALLOWED_HOSTS "Homepage allowed hosts (comma-separated host:port)" "$ip:3000,localhost:3000"
+    cat >> "$ENV_FILE" <<EOF
+
+# Homepage — hosts permitted to reach the dashboard (required by recent versions)
+HOMEPAGE_ALLOWED_HOSTS=$HOMEPAGE_ALLOWED_HOSTS
+EOF
+  fi
+
   ok "Wrote $ENV_FILE"
 }
 
@@ -56,8 +100,12 @@ EOF
 make_dirs() {
   log "Creating config and media directories..."
   local key
-  as_root mkdir -p "$MEDIA_ROOT"/{tv,movies,music,books} "$DOWNLOADS_ROOT" "$CONFIG_ROOT"
+  as_root mkdir -p "$MEDIA_ROOT"/{tv,movies,music,books,audiobooks,podcasts} "$DOWNLOADS_ROOT" "$CONFIG_ROOT"
   for key in "${SELECTED[@]}"; do as_root mkdir -p "$CONFIG_ROOT/$key"; done
+  # Pre-create nested config dirs for services whose mounts go below $CONFIG_ROOT/<key>,
+  # so they exist with the right owner before Docker bind-mounts them as root.
+  in_selected tdarr          && as_root mkdir -p "$CONFIG_ROOT/tdarr"/{server,configs,logs,transcode-cache}
+  in_selected audiobookshelf && as_root mkdir -p "$CONFIG_ROOT/audiobookshelf"/{config,metadata}
   as_root chown -R "$PUID:$PGID" "$CONFIG_ROOT" "$MEDIA_ROOT" "$DOWNLOADS_ROOT" 2>/dev/null \
     || warn "Could not chown all paths to $PUID:$PGID — adjust manually if containers report permission errors."
   ok "Directories ready."
@@ -77,6 +125,7 @@ check_ports() {
   listening=$(ss -ltnH 2>/dev/null | awk '{print $4}')
   for key in "${SELECTED[@]}"; do
     port=${SVC_PORT[$key]}
+    [[ -z $port ]] && continue   # background services expose no web UI
     if grep -qE "[:.]$port\$" <<<"$listening"; then
       warn "Host port $port (needed by $key) is already in use."
       busy=1
@@ -101,10 +150,15 @@ post_check() {
   ip=$(hostname -I 2>/dev/null | awk '{print $1}'); ip=${ip:-localhost}
   echo; ok "Your services:"
   for key in "${SELECTED[@]}"; do
-    printf '   %-12s http://%s:%s\n' "$key" "$ip" "${SVC_PORT[$key]}"
+    if [[ -z ${SVC_PORT[$key]} ]]; then
+      printf '   %-14s (background service, no web UI)\n' "$key"
+    else
+      printf '   %-14s http://%s:%s\n' "$key" "$ip" "${SVC_PORT[$key]}"
+    fi
   done
   echo
   warn "First-run notes: set a strong password in each web UI; qBittorrent prints a temporary password in 'docker logs qbittorrent'."
+  in_selected gluetun && warn "Gluetun: confirm the tunnel is up with 'docker logs gluetun' before trusting it; qBittorrent has no connectivity until the VPN connects."
 }
 
 main() {
@@ -116,6 +170,7 @@ main() {
   install_docker
   select_apps
   ((${#SELECTED[@]})) || die "No applications selected — nothing to do."
+  USE_GLUETUN=0; in_selected gluetun && USE_GLUETUN=1
   write_env
   make_dirs
   write_compose
