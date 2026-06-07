@@ -114,8 +114,10 @@ EOF
 EOF
       } ;;
     readarr)
-      # Readarr only publishes a :develop tag on LinuxServer.
-      { echo "  readarr:"; echo "    image: lscr.io/linuxserver/readarr:develop"; \
+      # Readarr is wound down upstream; LinuxServer's rolling :develop/:nightly
+      # tags have lost their amd64 manifest, so pin to a version tag that is
+      # still multi-arch (amd64 + arm64). update.sh will not bump this.
+      { echo "  readarr:"; echo "    image: lscr.io/linuxserver/readarr:0.4.18-develop"; \
         echo "    container_name: readarr"; _lsio_env; cat <<'EOF'
     volumes:
       - ${CONFIG_ROOT}/readarr:/config
