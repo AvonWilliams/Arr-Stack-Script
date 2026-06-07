@@ -6,17 +6,21 @@
 # matching block to emit_service(). LinuxServer images are preferred; they read
 # PUID/PGID/TZ from the generated .env via compose interpolation.
 
-ALL_SERVICES=(qbittorrent sabnzbd sonarr radarr lidarr readarr jellyfin overseerr portainer)
+ALL_SERVICES=(qbittorrent sabnzbd prowlarr flaresolverr sonarr radarr lidarr readarr bazarr jellyfin overseerr jellyseerr portainer)
 
 declare -A SVC_LABEL=(
   [qbittorrent]="qBittorrent (torrent client)"
   [sabnzbd]="SABnzbd (usenet client)"
+  [prowlarr]="Prowlarr (indexer manager)"
+  [flaresolverr]="FlareSolverr (Cloudflare solver for indexers)"
   [sonarr]="Sonarr (TV)"
   [radarr]="Radarr (movies)"
   [lidarr]="Lidarr (music)"
   [readarr]="Readarr (books)"
+  [bazarr]="Bazarr (subtitles for Sonarr/Radarr)"
   [jellyfin]="Jellyfin (media server)"
-  [overseerr]="Overseerr (media requests)"
+  [overseerr]="Overseerr (requests, Plex-oriented)"
+  [jellyseerr]="Jellyseerr (requests, Jellyfin-oriented)"
   [portainer]="Portainer (container management)"
 )
 
@@ -24,12 +28,16 @@ declare -A SVC_LABEL=(
 declare -A SVC_PORT=(
   [qbittorrent]=8080
   [sabnzbd]=8081
+  [prowlarr]=9696
+  [flaresolverr]=8191
   [sonarr]=8989
   [radarr]=7878
   [lidarr]=8686
   [readarr]=8787
+  [bazarr]=6767
   [jellyfin]=8096
   [overseerr]=5055
+  [jellyseerr]=5056
   [portainer]=9000
 )
 
@@ -77,6 +85,30 @@ EOF
     restart: unless-stopped
 EOF
       } ;;
+    prowlarr)
+      { echo "  prowlarr:"; echo "    image: lscr.io/linuxserver/prowlarr:latest"; \
+        echo "    container_name: prowlarr"; _lsio_env; cat <<'EOF'
+    volumes:
+      - ${CONFIG_ROOT}/prowlarr:/config
+    ports:
+      - 9696:9696
+    restart: unless-stopped
+EOF
+      } ;;
+    flaresolverr)
+      # Not a LinuxServer image; stateless, no PUID/PGID, no volumes.
+      cat <<'EOF'
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ}
+    ports:
+      - 8191:8191
+    restart: unless-stopped
+EOF
+      ;;
     sonarr)
       { echo "  sonarr:"; echo "    image: lscr.io/linuxserver/sonarr:latest"; \
         echo "    container_name: sonarr"; _lsio_env; cat <<'EOF'
@@ -128,6 +160,18 @@ EOF
     restart: unless-stopped
 EOF
       } ;;
+    bazarr)
+      { echo "  bazarr:"; echo "    image: lscr.io/linuxserver/bazarr:latest"; \
+        echo "    container_name: bazarr"; _lsio_env; cat <<'EOF'
+    volumes:
+      - ${CONFIG_ROOT}/bazarr:/config
+      - ${MEDIA_ROOT}/movies:/movies
+      - ${MEDIA_ROOT}/tv:/tv
+    ports:
+      - 6767:6767
+    restart: unless-stopped
+EOF
+      } ;;
     jellyfin)
       { echo "  jellyfin:"; echo "    image: lscr.io/linuxserver/jellyfin:latest"; \
         echo "    container_name: jellyfin"; _lsio_env; cat <<'EOF'
@@ -152,6 +196,25 @@ EOF
     restart: unless-stopped
 EOF
       } ;;
+    jellyseerr)
+      # fallenbagel image (not LinuxServer); honors PUID/PGID/TZ, config at
+      # /app/config. Web UI defaults to 5055 internally — published on host
+      # 5056 to avoid clashing with Overseerr.
+      cat <<'EOF'
+  jellyseerr:
+    image: fallenbagel/jellyseerr:latest
+    container_name: jellyseerr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_ROOT}/jellyseerr:/app/config
+    ports:
+      - 5056:5055
+    restart: unless-stopped
+EOF
+      ;;
     portainer)
       # Not a LinuxServer image; needs the Docker socket and runs as root.
       cat <<'EOF'
