@@ -27,6 +27,7 @@ Pick any subset at install time.
 | Calibre-Web | Ebook reader/library | `:8083` |
 | Audiobookshelf | Audiobooks & podcasts server | `:13378` |
 | Tdarr | Library transcoding/health checks | `:8265` |
+| tinyMediaManager | Movie/TV metadata manager (noVNC UI) | `:4000` |
 | Overseerr | Requests (Plex-oriented) | `:5055` |
 | Jellyseerr | Requests (Jellyfin-oriented) | `:5056` |
 | Maintainerr | Rule-based library cleanup | `:6246` |
@@ -68,6 +69,41 @@ edit `.env` and run `docker compose up -d` to change settings later.
 
 `backup.sh` does **not** archive your media library (too large) — only the
 configuration needed to rebuild the stack. Back up media separately.
+
+## Troubleshooting
+
+### Running under an unprivileged Proxmox LXC
+
+If the images pull successfully but **Gluetun (and qBittorrent with it) fail to
+start**, the cause is almost always the container's VPN tunnel device. Gluetun
+needs `/dev/net/tun` and the `NET_ADMIN` capability, and an unprivileged LXC
+doesn't expose `/dev/net/tun` by default — so Gluetun crashes on boot, and
+because qBittorrent uses `network_mode: "service:gluetun"`, it goes down too.
+Confirm with `docker logs gluetun` (look for `TUN device is not available`).
+
+Fix it on the **Proxmox host** (not inside the LXC):
+
+1. Load the `tun` module and make it persistent:
+   ```bash
+   modprobe tun
+   echo tun >> /etc/modules-load.d/modules.conf
+   ```
+2. Add to the container config `/etc/pve/lxc/<CTID>.conf`:
+   ```
+   lxc.cgroup2.devices.allow: c 10:200 rwm
+   lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file
+   features: nesting=1,keyctl=1
+   ```
+   (`nesting=1` is also what lets Docker run in the LXC at all.)
+3. Restart the container: `pct stop <CTID> && pct start <CTID>`.
+4. Back inside the LXC, verify and relaunch:
+   ```bash
+   ls -l /dev/net/tun          # should now exist
+   docker compose up -d
+   ```
+
+If you'd rather not pass through TUN, re-run `./install.sh` and **deselect
+Gluetun** — qBittorrent then runs directly on `:8080` with no VPN protection.
 
 ## Notes
 

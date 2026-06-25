@@ -15,7 +15,7 @@ ALL_SERVICES=(
   gluetun qbittorrent sabnzbd unpackerr
   prowlarr flaresolverr
   sonarr radarr lidarr readarr bazarr recyclarr
-  jellyfin navidrome calibre-web audiobookshelf tdarr
+  jellyfin navidrome calibre-web audiobookshelf tdarr tinymediamanager
   overseerr jellyseerr maintainerr
   homepage portainer dozzle
 )
@@ -38,6 +38,7 @@ declare -A SVC_LABEL=(
   [calibre-web]="Calibre-Web (ebook reader/library)"
   [audiobookshelf]="Audiobookshelf (audiobooks & podcasts)"
   [tdarr]="Tdarr (library transcoding/health checks)"
+  [tinymediamanager]="tinyMediaManager (movie/TV metadata manager)"
   [overseerr]="Overseerr (requests, Plex-oriented)"
   [jellyseerr]="Jellyseerr (requests, Jellyfin-oriented)"
   [maintainerr]="Maintainerr (library cleanup rules)"
@@ -65,6 +66,7 @@ declare -A SVC_PORT=(
   [calibre-web]=8083
   [audiobookshelf]=13378
   [tdarr]=8265
+  [tinymediamanager]=4000
   [overseerr]=5055
   [jellyseerr]=5056
   [maintainerr]=6246
@@ -79,7 +81,7 @@ in_selected() { local x; for x in "${SELECTED[@]:-}"; do [[ $x == "$1" ]] && ret
 # Grouping for the generated Homepage dashboard: "Group:key,key,...".
 HOMEPAGE_GROUPS=(
   "Downloads:gluetun,qbittorrent,sabnzbd,unpackerr,flaresolverr"
-  "Automation:prowlarr,sonarr,radarr,lidarr,readarr,bazarr,recyclarr,tdarr,maintainerr"
+  "Automation:prowlarr,sonarr,radarr,lidarr,readarr,bazarr,recyclarr,tdarr,tinymediamanager,maintainerr"
   "Media:jellyfin,navidrome,calibre-web,audiobookshelf"
   "Requests:overseerr,jellyseerr"
   "Management:homepage,portainer,dozzle"
@@ -404,6 +406,26 @@ EOF
     ports:
       - 8265:8265
       - 8266:8266
+    restart: unless-stopped
+EOF
+      ;;
+    tinymediamanager)
+      # Not a LinuxServer image; it reads USER_ID/GROUP_ID (not PUID/PGID). Web UI
+      # is noVNC on :4000. Only manages movies + TV, so only those libraries mount.
+      cat <<'EOF'
+  tinymediamanager:
+    image: tinymediamanager/tinymediamanager:latest
+    container_name: tinymediamanager
+    environment:
+      - USER_ID=${PUID}
+      - GROUP_ID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_ROOT}/tinymediamanager:/data
+      - ${MEDIA_ROOT}/movies:/media/movies
+      - ${MEDIA_ROOT}/tv:/media/tvshows
+    ports:
+      - 4000:4000
     restart: unless-stopped
 EOF
       ;;
